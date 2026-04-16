@@ -13,40 +13,78 @@
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
         <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800;900&family=Rubik+Mono+One&family=Space+Grotesk:wght@400;600&family=Space+Mono:ital,wght@0,400;0,700;1,400;1,700&display=swap" rel="stylesheet">
         <style>
-            /* ── Page layout ── */
+            /* ════════════════════════════════
+               MOBILE-FIRST BASE STYLES
+               ════════════════════════════════ */
+
             .gamepass-page {
-                padding-top: 8rem;
-                padding-bottom: 5rem;
+                padding-top: 6rem;
+                padding-bottom: 4rem;
                 min-height: 100vh;
                 box-sizing: border-box;
             }
 
+            /* Tab switcher — mobile only */
+            .gp-tabs {
+                display: flex;
+                max-width: 420px;
+                margin: 0 auto 1.5rem;
+                padding: 0 1.25rem;
+                gap: 0;
+            }
+
+            .gp-tab {
+                flex: 1;
+                padding: 0.7rem 0.5rem;
+                background: #fff;
+                color: var(--navy);
+                border: 2px solid var(--navy);
+                font-family: 'Space Mono', monospace;
+                font-size: 0.75rem;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.1em;
+                cursor: pointer;
+                transition: background 0.15s, color 0.15s;
+            }
+
+            .gp-tab:first-child { border-radius: 8px 0 0 8px; border-right-width: 1px; }
+            .gp-tab:last-child  { border-radius: 0 8px 8px 0; border-left-width: 1px; }
+
+            .gp-tab.active {
+                background: var(--navy);
+                color: #fff;
+            }
+
+            /* Editor layout — single column on mobile */
             .gamepass-editor {
-                display: grid;
-                grid-template-columns: 1fr 1fr;
-                gap: 3rem;
+                display: flex;
+                flex-direction: column;
+                gap: 2rem;
                 max-width: 980px;
                 margin: 0 auto;
-                padding: 0 2rem;
-                align-items: start;
+                padding: 0 1.25rem;
+                align-items: stretch;
             }
+
+            /* Mobile: hide whichever panel isn't active */
+            .gamepass-editor.tab-preview .gp-form-panel    { display: none; }
+            .gamepass-editor.tab-edit   .gp-preview-panel  { display: none; }
 
             /* ── Form panel ── */
             .gp-form-panel {
-                position: sticky;
-                top: 7.5rem;
                 text-align: left;
             }
 
             .gp-form-panel h2 {
                 font-family: 'Rubik Mono One', sans-serif;
-                font-size: 1.4rem;
+                font-size: 1.3rem;
                 color: var(--navy);
-                margin: 0 0 1.5rem;
+                margin: 0 0 1.25rem;
             }
 
             .gp-field {
-                margin-bottom: 0.9rem;
+                margin-bottom: 0.85rem;
                 display: flex;
                 flex-direction: column;
                 gap: 0.3rem;
@@ -64,15 +102,17 @@
             .gp-field input[type="text"],
             .gp-field textarea {
                 font-family: 'Space Grotesk', sans-serif;
-                font-size: 0.875rem;
-                padding: 0.45rem 0.7rem;
+                font-size: 1rem;          /* 16px prevents iOS zoom */
+                padding: 0.6rem 0.8rem;
+                min-height: 44px;         /* comfortable touch target */
                 border: 1.5px solid #ddd;
-                border-radius: 6px;
+                border-radius: 8px;
                 color: var(--near-black);
                 background: #fff;
                 transition: border-color 0.15s;
                 width: 100%;
                 box-sizing: border-box;
+                -webkit-appearance: none;
             }
 
             .gp-field input[type="text"]:focus,
@@ -84,13 +124,14 @@
             .gp-field textarea {
                 resize: vertical;
                 line-height: 1.5;
+                min-height: 80px;
             }
 
             .gp-color-row {
                 display: flex;
                 align-items: center;
                 gap: 0.75rem;
-                margin-bottom: 0.9rem;
+                margin-bottom: 0.85rem;
             }
 
             .gp-color-row label {
@@ -103,13 +144,14 @@
             }
 
             .gp-color-row input[type="color"] {
-                width: 44px;
-                height: 32px;
+                width: 48px;
+                height: 44px;
                 border: 1.5px solid #ddd;
-                border-radius: 6px;
-                padding: 2px 3px;
+                border-radius: 8px;
+                padding: 3px 4px;
                 cursor: pointer;
                 background: #fff;
+                -webkit-appearance: none;
             }
 
             /* ── Preview panel ── */
@@ -118,13 +160,14 @@
                 justify-content: center;
             }
 
-            /* Phone frame */
+            /* Phone frame — scales to screen on mobile */
             .phone-frame {
-                width: 355px;
+                width: 100%;
+                max-width: 355px;
                 background: #111114;
-                border-radius: 44px;
+                border-radius: 40px;
                 box-shadow:
-                    0 40px 100px rgba(0,0,0,0.35),
+                    0 24px 60px rgba(0,0,0,0.3),
                     0 0 0 2px #333,
                     inset 0 0 0 1px #444;
                 overflow: hidden;
@@ -137,7 +180,7 @@
                 display: flex;
                 align-items: center;
                 justify-content: space-between;
-                padding: 0 22px;
+                padding: 0 20px;
                 font-family: 'Montserrat', sans-serif;
                 font-size: 12px;
                 font-weight: 700;
@@ -152,18 +195,11 @@
                 font-weight: 600;
             }
 
-            .status-battery {
-                display: inline-flex;
-                align-items: center;
-                gap: 1px;
-            }
-
             /* ── Game Pass (Montserrat) ── */
             .game-pass {
                 font-family: 'Montserrat', sans-serif;
             }
 
-            /* Dark header */
             .pass-header {
                 background: #111114;
                 padding: 14px 24px 18px;
@@ -193,7 +229,6 @@
                 font-weight: 400;
             }
 
-            /* Check-in section */
             .pass-checkin {
                 background: #f0f0f5;
                 padding: 26px 20px 30px;
@@ -229,7 +264,6 @@
                 filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));
             }
 
-            /* Details section */
             .pass-details {
                 background: #111114;
                 padding: 10px 20px 28px;
@@ -310,19 +344,35 @@
                 margin-top: -2px;
             }
 
-            /* ── Responsive ── */
-            @media (max-width: 760px) {
+            /* ════════════════════════════════
+               DESKTOP — two-column side by side
+               ════════════════════════════════ */
+            @media (min-width: 760px) {
+                .gamepass-page {
+                    padding-top: 8rem;
+                    padding-bottom: 5rem;
+                }
+
+                /* Hide tab switcher on desktop */
+                .gp-tabs { display: none; }
+
+                /* Always show both panels */
+                .gamepass-editor.tab-preview .gp-form-panel,
+                .gamepass-editor.tab-edit   .gp-preview-panel {
+                    display: block;
+                }
+                .gp-preview-panel { display: flex !important; }
+
                 .gamepass-editor {
-                    grid-template-columns: 1fr;
-                    gap: 2rem;
+                    display: grid;
+                    grid-template-columns: 1fr 1fr;
+                    gap: 3rem;
+                    padding: 0 2rem;
                 }
 
                 .gp-form-panel {
-                    position: static;
-                }
-
-                .gamepass-page {
-                    padding-top: 6rem;
+                    position: sticky;
+                    top: 7.5rem;
                 }
             }
         </style>
@@ -339,7 +389,13 @@
 
     <main>
         <div class="gamepass-page">
-            <div class="gamepass-editor">
+            <!-- Tab switcher (mobile only) -->
+            <div class="gp-tabs">
+                <button class="gp-tab" data-tab="edit">Edit</button>
+                <button class="gp-tab active" data-tab="preview">Preview</button>
+            </div>
+
+            <div class="gamepass-editor tab-preview">
 
                 <!-- ── Form Panel ── -->
                 <div class="gp-form-panel">
@@ -499,6 +555,22 @@
             isMin = false;
         }
     }
+
+    // Mobile tab switching
+    const editor = document.querySelector('.gamepass-editor');
+    document.querySelectorAll('.gp-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+            document.querySelectorAll('.gp-tab').forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+            const target = tab.dataset.tab;
+            editor.classList.toggle('tab-preview', target === 'preview');
+            editor.classList.toggle('tab-edit',    target === 'edit');
+            // Scroll to top of pass area so the pass is visible
+            if (target === 'preview') {
+                editor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        });
+    });
 
     // Live form → preview bindings
     const textBindings = [
