@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>Game Pass Editor • cndwng</title>
+        <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+        <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+        <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png">
+        <link rel="manifest" href="/site.webmanifest">
+        <link rel="stylesheet" href="style.css" />
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800;900&family=Rubik+Mono+One&family=Space+Grotesk:wght@400;600&family=Space+Mono:ital,wght@0,400;0,700;1,400;1,700&display=swap" rel="stylesheet">
+        <style>
+            /* ── Page layout ── */
+            .gamepass-page {
+                padding-top: 8rem;
+                padding-bottom: 5rem;
+                min-height: 100vh;
+                box-sizing: border-box;
+            }
+
+            .gamepass-editor {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 3rem;
+                max-width: 980px;
+                margin: 0 auto;
+                padding: 0 2rem;
+                align-items: start;
+            }
+
+            /* ── Form panel ── */
+            .gp-form-panel {
+                position: sticky;
+                top: 7.5rem;
+                text-align: left;
+            }
+
+            .gp-form-panel h2 {
+                font-family: 'Rubik Mono One', sans-serif;
+                font-size: 1.4rem;
+                color: var(--navy);
+                margin: 0 0 1.5rem;
+            }
+
+            .gp-field {
+                margin-bottom: 0.9rem;
+                display: flex;
+                flex-direction: column;
+                gap: 0.3rem;
+            }
+
+            .gp-field label {
+                font-family: 'Space Mono', monospace;
+                font-size: 0.65rem;
+                text-transform: uppercase;
+                letter-spacing: 0.12em;
+                color: #888;
+                font-weight: 700;
+            }
+
+            .gp-field input[type="text"],
+            .gp-field textarea {
+                font-family: 'Space Grotesk', sans-serif;
+                font-size: 0.875rem;
+                padding: 0.45rem 0.7rem;
+                border: 1.5px solid #ddd;
+                border-radius: 6px;
+                color: var(--near-black);
+                background: #fff;
+                transition: border-color 0.15s;
+                width: 100%;
+                box-sizing: border-box;
+            }
+
+            .gp-field input[type="text"]:focus,
+            .gp-field textarea:focus {
+                outline: none;
+                border-color: var(--violet);
+            }
+
+            .gp-field textarea {
+                resize: vertical;
+                line-height: 1.5;
+            }
+
+            .gp-color-row {
+                display: flex;
+                align-items: center;
+                gap: 0.75rem;
+                margin-bottom: 0.9rem;
+            }
+
+            .gp-color-row label {
+                font-family: 'Space Mono', monospace;
+                font-size: 0.65rem;
+                text-transform: uppercase;
+                letter-spacing: 0.12em;
+                color: #888;
+                font-weight: 700;
+            }
+
+            .gp-color-row input[type="color"] {
+                width: 44px;
+                height: 32px;
+                border: 1.5px solid #ddd;
+                border-radius: 6px;
+                padding: 2px 3px;
+                cursor: pointer;
+                background: #fff;
+            }
+
+            /* ── Preview panel ── */
+            .gp-preview-panel {
+                display: flex;
+                justify-content: center;
+            }
+
+            /* Phone frame */
+            .phone-frame {
+                width: 355px;
+                background: #111114;
+                border-radius: 44px;
+                box-shadow:
+                    0 40px 100px rgba(0,0,0,0.35),
+                    0 0 0 2px #333,
+                    inset 0 0 0 1px #444;
+                overflow: hidden;
+            }
+
+            /* Status bar */
+            .phone-status-bar {
+                background: #111114;
+                height: 40px;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding: 0 22px;
+                font-family: 'Montserrat', sans-serif;
+                font-size: 12px;
+                font-weight: 700;
+                color: #fff;
+            }
+
+            .status-right {
+                display: flex;
+                align-items: center;
+                gap: 5px;
+                font-size: 11px;
+                font-weight: 600;
+            }
+
+            .status-battery {
+                display: inline-flex;
+                align-items: center;
+                gap: 1px;
+            }
+
+            /* ── Game Pass (Montserrat) ── */
+            .game-pass {
+                font-family: 'Montserrat', sans-serif;
+            }
+
+            /* Dark header */
+            .pass-header {
+                background: #111114;
+                padding: 14px 24px 18px;
+                text-align: center;
+            }
+
+            .pass-title {
+                color: #5BBBEE;
+                font-size: 12px;
+                font-weight: 600;
+                letter-spacing: 3.5px;
+                text-transform: uppercase;
+                margin-bottom: 5px;
+            }
+
+            .pass-person-name {
+                color: #ffffff;
+                font-size: 21px;
+                font-weight: 700;
+                margin-bottom: 3px;
+                line-height: 1.2;
+            }
+
+            .pass-role {
+                color: #ababab;
+                font-size: 14px;
+                font-weight: 400;
+            }
+
+            /* Check-in section */
+            .pass-checkin {
+                background: #f0f0f5;
+                padding: 26px 20px 30px;
+                text-align: center;
+            }
+
+            .checkin-text {
+                color: #1b1b36;
+                font-size: 23px;
+                font-weight: 800;
+                margin-bottom: 18px;
+                letter-spacing: -0.3px;
+            }
+
+            .checkmark-wrap {
+                width: 118px;
+                height: 118px;
+                margin: 0 auto;
+                background: linear-gradient(155deg, #5ae07a 0%, #16a34a 55%, #138a3e 100%);
+                border-radius: 28px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                box-shadow:
+                    0 10px 36px rgba(22, 163, 74, 0.38),
+                    0 2px 8px rgba(22, 163, 74, 0.2),
+                    inset 0 1px 0 rgba(255,255,255,0.22);
+            }
+
+            .checkmark-wrap svg {
+                width: 64px;
+                height: 64px;
+                filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));
+            }
+
+            /* Details section */
+            .pass-details {
+                background: #111114;
+                padding: 10px 20px 28px;
+            }
+
+            .blinking-indicator {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                padding-bottom: 10px;
+                margin-bottom: 4px;
+            }
+
+            .blinking-indicator > span:first-child {
+                color: #555;
+                font-size: 9.5px;
+                font-weight: 400;
+                letter-spacing: 0.01em;
+            }
+
+            .blink-dot {
+                width: 11px;
+                height: 11px;
+                min-width: 11px;
+                background: #007AFF;
+                border-radius: 50%;
+                box-shadow: 0 0 6px rgba(0, 122, 255, 0.6);
+                animation: blink-pulse 2s ease-in-out infinite;
+            }
+
+            @keyframes blink-pulse {
+                0%, 100% { opacity: 1; box-shadow: 0 0 6px rgba(0,122,255,0.6); }
+                50% { opacity: 0.15; box-shadow: none; }
+            }
+
+            .player-since-badge {
+                display: inline-block;
+                background: #1c2954;
+                color: #b8c8ff;
+                font-size: 11px;
+                font-weight: 600;
+                padding: 6px 14px;
+                border-radius: 7px;
+                margin-bottom: 16px;
+                letter-spacing: 0.02em;
+            }
+
+            .detail-row {
+                display: grid;
+                grid-template-columns: 80px 1fr;
+                gap: 8px;
+                margin-bottom: 13px;
+                align-items: start;
+            }
+
+            .detail-label {
+                color: #7a7a88;
+                font-size: 13px;
+                font-weight: 700;
+                padding-top: 1px;
+            }
+
+            .detail-value {
+                color: #d0d0da;
+                font-size: 13px;
+                font-weight: 400;
+                line-height: 1.5;
+            }
+
+            .team-dot {
+                display: inline-block;
+                width: 17px;
+                height: 17px;
+                border-radius: 50%;
+                background: #ccc;
+                vertical-align: middle;
+                margin-right: 5px;
+                margin-top: -2px;
+            }
+
+            /* ── Responsive ── */
+            @media (max-width: 760px) {
+                .gamepass-editor {
+                    grid-template-columns: 1fr;
+                    gap: 2rem;
+                }
+
+                .gp-form-panel {
+                    position: static;
+                }
+
+                .gamepass-page {
+                    padding-top: 6rem;
+                }
+            }
+        </style>
+    </head>
+<body>
+    <nav>
+        <ul>
+            <li id="home"><a href="/">
+                cndwng
+                <div id="no-vowels">*me, no vowels</div>
+            </a></li>
+        </ul>
+    </nav>
+
+    <main>
+        <div class="gamepass-page">
+            <div class="gamepass-editor">
+
+                <!-- ── Form Panel ── -->
+                <div class="gp-form-panel">
+                    <h2>game pass editor</h2>
+
+                    <div class="gp-field">
+                        <label for="f-header-title">Header Title</label>
+                        <input type="text" id="f-header-title" value="GAME PASS" />
+                    </div>
+                    <div class="gp-field">
+                        <label for="f-header-name">Header Name</label>
+                        <input type="text" id="f-header-name" value="Cindy Wang" />
+                    </div>
+                    <div class="gp-field">
+                        <label for="f-header-role">Role</label>
+                        <input type="text" id="f-header-role" value="Team Member" />
+                    </div>
+                    <div class="gp-field">
+                        <label for="f-player-since">Player Since</label>
+                        <input type="text" id="f-player-since" value="October 2025" />
+                    </div>
+                    <div class="gp-field">
+                        <label for="f-name">Name</label>
+                        <input type="text" id="f-name" value="Cindy Wang" />
+                    </div>
+                    <div class="gp-field">
+                        <label for="f-program">Program</label>
+                        <textarea id="f-program" rows="3">Softball (10v10 Coed) – Wednesday – Sternberg Park (Williamsburg) – April 2026</textarea>
+                    </div>
+                    <div class="gp-field">
+                        <label for="f-date">Date</label>
+                        <input type="text" id="f-date" value="April 15, 2026" />
+                    </div>
+                    <div class="gp-field">
+                        <label for="f-time">Time</label>
+                        <input type="text" id="f-time" value="8:00 PM EDT" />
+                    </div>
+                    <div class="gp-field">
+                        <label for="f-location">Location</label>
+                        <input type="text" id="f-location" value="Sternberg Park" />
+                    </div>
+                    <div class="gp-field">
+                        <label for="f-field">Field</label>
+                        <input type="text" id="f-field" value="Field 2" />
+                    </div>
+                    <div class="gp-color-row">
+                        <label for="f-team-color">Team Color</label>
+                        <input type="color" id="f-team-color" value="#cccccc" />
+                    </div>
+                    <div class="gp-field">
+                        <label for="f-team">Team Name</label>
+                        <input type="text" id="f-team" value="triple frown" />
+                    </div>
+                </div>
+
+                <!-- ── Preview Panel ── -->
+                <div class="gp-preview-panel">
+                    <div class="phone-frame">
+                        <!-- Status bar -->
+                        <div class="phone-status-bar">
+                            <span>9:41</span>
+                            <span class="status-right">●●●● 5G ▮▮▮</span>
+                        </div>
+
+                        <!-- Game Pass -->
+                        <div class="game-pass">
+                            <!-- Dark header -->
+                            <div class="pass-header">
+                                <div class="pass-title" id="p-header-title">- GAME PASS -</div>
+                                <div class="pass-person-name" id="p-header-name">Cindy Wang</div>
+                                <div class="pass-role" id="p-header-role">Team Member</div>
+                            </div>
+
+                            <!-- Check-in section -->
+                            <div class="pass-checkin">
+                                <div class="checkin-text">You're checked in!</div>
+                                <div class="checkmark-wrap">
+                                    <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" fill="none">
+                                        <path d="M18 52 L40 72 L82 26" stroke="rgba(255,255,255,0.92)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+                                    </svg>
+                                </div>
+                            </div>
+
+                            <!-- Details section -->
+                            <div class="pass-details">
+                                <div class="blinking-indicator">
+                                    <span>• Blinking indicator represents the original Game Pass</span>
+                                    <span class="blink-dot"></span>
+                                </div>
+                                <div class="player-since-badge">
+                                    Player since <span id="p-player-since">October 2025</span>
+                                </div>
+
+                                <div class="detail-row">
+                                    <span class="detail-label">Name</span>
+                                    <span class="detail-value" id="p-name">Cindy Wang</span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="detail-label">Program</span>
+                                    <span class="detail-value" id="p-program">Softball (10v10 Coed) – Wednesday – Sternberg Park (Williamsburg) – April 2026</span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="detail-label">Date</span>
+                                    <span class="detail-value" id="p-date">April 15, 2026</span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="detail-label">Time</span>
+                                    <span class="detail-value" id="p-time">8:00 PM EDT</span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="detail-label">Location</span>
+                                    <span class="detail-value" id="p-location">Sternberg Park</span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="detail-label">Field</span>
+                                    <span class="detail-value" id="p-field">Field 2</span>
+                                </div>
+                                <div class="detail-row">
+                                    <span class="detail-label">Team</span>
+                                    <span class="detail-value">
+                                        <span class="team-dot" id="p-team-dot" style="background:#cccccc;"></span><span id="p-team">triple frown</span>
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <ul>
+            <li><a href="https://linkedin.com/in/cndwng">linkedin</a></li>
+            •
+            <li><a href="https://instagram.com/cnd.wng">instagram</a></li>
+            •
+            <li><a href="https://dribbble.com/cndwng">dribbble</a></li>
+            •
+            <li><a href="mailto:cindy@cndwng.com">email</a></li>
+        </ul>
+    </footer>
+</body>
+<script>
+    // Nav minimize on scroll
+    const nav = document.querySelector("nav");
+    const navHeight = nav.offsetHeight;
+    let isMin = false;
+    window.addEventListener("scroll", minimizeNav);
+    function minimizeNav() {
+        if (window.scrollY >= navHeight && !isMin) {
+            nav.classList.add("minimize-nav");
+            isMin = true;
+        } else if (window.scrollY < navHeight - 24 && isMin) {
+            nav.classList.remove("minimize-nav");
+            isMin = false;
+        }
+    }
+
+    // Live form → preview bindings
+    const textBindings = [
+        ['f-header-title', 'p-header-title'],
+        ['f-header-name',  'p-header-name'],
+        ['f-header-role',  'p-header-role'],
+        ['f-player-since', 'p-player-since'],
+        ['f-name',         'p-name'],
+        ['f-program',      'p-program'],
+        ['f-date',         'p-date'],
+        ['f-time',         'p-time'],
+        ['f-location',     'p-location'],
+        ['f-field',        'p-field'],
+        ['f-team',         'p-team'],
+    ];
+
+    textBindings.forEach(([inputId, outputId]) => {
+        const input  = document.getElementById(inputId);
+        const output = document.getElementById(outputId);
+        input.addEventListener('input', () => {
+            output.textContent = input.value;
+        });
+    });
+
+    // Team color dot
+    document.getElementById('f-team-color').addEventListener('input', (e) => {
+        document.getElementById('p-team-dot').style.backgroundColor = e.target.value;
+    });
+</script>
+</html>
