@@ -213,13 +213,13 @@ function errorBanner() {
 function landingHTML() {
   const recent = ls.get('split:recent', []);
   return `
-    <header class="top"><a class="wordmark" href="./">split</a></header>
+    <header class="top"><button type="button" class="wordmark" data-act="home">split</button></header>
     ${errorBanner()}
     ${recent.length ? `
       <h3>Your trips</h3>
       <div class="card"><ul class="list">
-        ${recent.map((t) => `<li><a class="item" href="?t=${encodeURIComponent(t.id)}" style="color:inherit;text-decoration:none">
-          <span class="main"><span class="title">${esc(t.name)}</span></span><span class="muted">→</span></a></li>`).join('')}
+        ${recent.map((t) => `<li><button type="button" class="item" data-act="open-trip" data-id="${esc(t.id)}">
+          <span class="main"><span class="title">${esc(t.name)}</span></span><span class="muted">→</span></button></li>`).join('')}
       </ul></div>` : `
       <h1>split</h1>
       <p class="muted">Track who paid for what on a trip, then settle up in as few payments as possible.</p>`}
@@ -246,9 +246,9 @@ function localModeNote() {
 
 function notFoundHTML() {
   return `
-    <header class="top"><a class="wordmark" href="./">split</a></header>
+    <header class="top"><button type="button" class="wordmark" data-act="home">split</button></header>
     ${errorBanner()}
-    <div class="empty"><p>Couldn't find that trip.</p><a class="btn" href="./">All trips</a></div>`;
+    <div class="empty"><p>Couldn't find that trip.</p><button type="button" class="btn" data-act="home">All trips</button></div>`;
 }
 
 function tripHTML() {
@@ -261,7 +261,7 @@ function tripHTML() {
   const view = { add: addHTML, expenses: expensesHTML, settle: settleHTML, trip: tripSettingsHTML }[S.tab]();
   return `
     <header class="top">
-      <a class="wordmark" href="./" aria-label="All trips">split</a>
+      <button type="button" class="wordmark" data-act="home" aria-label="All trips">split</button>
       <span class="trip-name">${esc(S.trip.name)}</span>
       <button class="me-chip" type="button" data-act="tab" data-tab="trip">${S.me && S.trip.people[S.me] ? esc(personName(S.me)) : 'who are you?'}</button>
     </header>
@@ -526,7 +526,9 @@ function tripSettingsHTML() {
       ${ppl.map((p) => `
         <div class="person-row">
           <input id="person-${p.id}" data-change="rename" data-id="${p.id}" value="${esc(p.name)}" aria-label="Name" autocomplete="off">
-          <button type="button" class="icon-btn" data-act="remove-person" data-id="${p.id}" aria-label="Remove ${esc(p.name)}">✕</button>
+          ${S.confirmRemove === p.id
+    ? `<button type="button" class="btn sm danger" id="rm-${p.id}" data-act="remove-person" data-id="${p.id}">Remove</button>`
+    : `<button type="button" class="icon-btn" id="rm-${p.id}" data-act="remove-person" data-id="${p.id}" aria-label="Remove ${esc(p.name)}">✕</button>`}
         </div>`).join('')}
       <form class="person-row" id="add-person">
         <input id="new-person" placeholder="Add someone" autocomplete="off" enterkeyhint="done">
@@ -550,7 +552,7 @@ function tripSettingsHTML() {
     <div class="card">
       <label class="field" style="margin-top:0"><span class="label">Name</span>
         <input id="trip-name" data-change="trip-name" value="${esc(S.trip.name)}" autocomplete="off"></label>
-      <a class="btn sm" href="./">All trips</a>
+      <button type="button" class="btn sm" data-act="home">All trips</button>
     </div>`;
 }
 
@@ -642,6 +644,8 @@ const actions = {
     if (e) toast(`Deleted ${e.kind === 'payment' ? 'payment' : e.merchant}`, { label: 'Undo', fn: () => S.store.saveExpense(S.tripId, e) });
   },
   edit: ({ id }) => startEdit(id),
+  home: () => go(null),
+  'open-trip': ({ id }) => go(id),
   'settle-cur': ({ cur }) => S.store.updateTrip(S.tripId, { settleCurrency: cur }),
   'mark-paid': ({ from, to, amount }) => {
     const cur = settleCur();
@@ -666,7 +670,13 @@ const actions = {
       toast(`${personName(id)} is on ${used} expense${used === 1 ? '' : 's'}. Edit or delete those first.`);
       return;
     }
-    if (!confirm(`Remove ${personName(id)} from the trip?`)) return;
+    if (S.confirmRemove !== id) {
+      S.confirmRemove = id;
+      render();
+      setTimeout(() => { if (S.confirmRemove === id) { S.confirmRemove = null; render(); } }, 3000);
+      return;
+    }
+    S.confirmRemove = null;
     S.store.removePerson(S.tripId, id);
     if (S.me === id) { S.me = null; ls.set(`split:me:${S.tripId}`, null); }
   },
@@ -793,8 +803,7 @@ app.addEventListener('submit', async (ev) => {
     });
     ls.set(`split:me:${id}`, meId);
     // Stay on this page (no reload) so the pending write isn't cut off.
-    history.pushState(null, '', `?t=${id}`);
-    openTrip(id);
+    go(id);
   }
 });
 
@@ -807,6 +816,13 @@ function rememberTrip() {
 }
 
 let unsubscribe = null;
+
+// Switch trips without a page load (also keeps any pending write alive).
+function go(id) {
+  try { history.pushState(null, '', id ? `?t=${id}` : location.pathname); } catch { /* sandboxed frame */ }
+  openTrip(id);
+  window.scrollTo(0, 0);
+}
 
 function openTrip(id) {
   unsubscribe?.();

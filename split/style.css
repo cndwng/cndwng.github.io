@@ -58,6 +58,9 @@ header.top {
   padding: 16px 0 8px;
 }
 .wordmark {
+  border: 0;
+  background: transparent;
+  padding: 0;
   font-family: 'Rubik Mono One', monospace;
   font-size: 1.1rem;
   text-decoration: none;

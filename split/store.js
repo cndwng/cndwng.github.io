@@ -33,11 +33,12 @@ function localStore() {
   const key = (id) => `split:trip:${id}`;
   const listeners = new Map(); // tripId -> Set<cb>
 
+  const mem = {}; // fallback when localStorage is blocked (private mode, sandboxed frames)
   const read = (id) => {
     try {
-      return JSON.parse(localStorage.getItem(key(id)));
+      return mem[id] ?? JSON.parse(localStorage.getItem(key(id)));
     } catch {
-      return null;
+      return mem[id] ?? null;
     }
   };
   const emit = (id) => {
@@ -50,7 +51,8 @@ function localStore() {
   const write = (id, fn) => {
     const data = read(id) || { trip: null, expenses: {} };
     fn(data);
-    localStorage.setItem(key(id), JSON.stringify(data));
+    mem[id] = data;
+    try { localStorage.setItem(key(id), JSON.stringify(data)); } catch { /* keep in memory */ }
     emit(id);
   };
 
