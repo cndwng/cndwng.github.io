@@ -5,6 +5,8 @@ import {
 import { openStore, newId } from './store.js';
 
 const app = document.getElementById('app');
+const sheetRoot = document.getElementById('sheet-root');
+const sheetBody = document.getElementById('sheet-body');
 const CUR_CODES = Object.keys(CURRENCIES);
 
 const S = {
@@ -12,7 +14,11 @@ const S = {
   tripId: new URLSearchParams(location.search).get('t'),
   trip: undefined, // undefined = loading, null = not found
   expenses: [],
-  tab: 'add',
+  tab: 'expenses', // expenses | settle | trip
+  sheetOpen: false, // add/edit sheet over the current tab
+  sheetPushed: false, // we added a history entry for the sheet, so Back closes it
+  sheetReturn: '',
+  flash: null, // { id, at } row to highlight after saving
   draft: null,
   editingId: null,
   errors: {},
@@ -57,6 +63,8 @@ function people() {
 const personName = (id) => S.trip?.people?.[id]?.name ?? 'someone (removed)';
 const rates = () => ({ ...DEFAULT_RATES, ...(S.trip?.rates || {}) });
 const settleCur = () => S.trip?.settleCurrency || 'USD';
+
+const clip = (str, n = 28) => (str.length > n ? `${str.slice(0, n - 1).trimEnd()}…` : str);
 
 let toastTimer;
 function toast(msg, action) {
@@ -186,14 +194,18 @@ function render() {
   // Re-rendering replaces the DOM, so carry focus (and any half-typed text in
   // non-draft inputs) across. Draft inputs re-render from S.draft instead.
   const a = document.activeElement;
-  const keep = a && a.id && app.contains(a)
+  const keep = a && a.id && (app.contains(a) || sheetRoot.contains(a))
     ? { id: a.id, value: a.value, s: a.selectionStart, e: a.selectionEnd, restoreValue: a.matches('input:not([data-bind]):not([data-exact]), textarea:not([data-bind])') }
     : null;
+
+  const sheetScroll = sheetBody.querySelector('.sheet-scroll')?.scrollTop || 0;
 
   if (!S.tripId) app.innerHTML = landingHTML();
   else if (S.trip === undefined) app.innerHTML = '<p class="loading">loading trip…</p>';
   else if (S.trip === null) app.innerHTML = notFoundHTML();
   else app.innerHTML = tripHTML();
+  renderSheet(sheetScroll);
+  applyFlash();
 
   if (keep) {
     const el = document.getElementById(keep.id);
@@ -203,7 +215,53 @@ function render() {
       try { el.setSelectionRange(keep.s, keep.e); } catch { /* not a text input */ }
     }
   }
-  if (S.tab === 'add' && S.trip) updateDerived();
+  if (S.sheetOpen) updateDerived();
+}
+
+let sheetTimer;
+function renderSheet(scrollTop) {
+  if (S.sheetOpen && S.trip) {
+    sheetBody.innerHTML = sheetHTML();
+    const scroller = sheetBody.querySelector('.sheet-scroll');
+    if (scroller) scroller.scrollTop = scrollTop;
+    clearTimeout(sheetTimer);
+    if (sheetRoot.hidden) {
+      sheetRoot.hidden = false;
+      void sheetRoot.offsetHeight; // start the slide-up from the closed position
+    }
+    sheetRoot.classList.add('open');
+    sheetRoot.inert = false;
+    app.inert = true;
+    document.documentElement.classList.add('sheet-open');
+  } else if (!sheetRoot.hidden) {
+    sheetRoot.classList.remove('open');
+    sheetRoot.inert = true;
+    app.inert = false;
+    document.documentElement.classList.remove('sheet-open');
+    clearTimeout(sheetTimer);
+    sheetTimer = setTimeout(() => {
+      if (S.sheetOpen) return;
+      sheetRoot.hidden = true;
+      sheetBody.innerHTML = '';
+    }, 320);
+  }
+}
+
+// Highlight a just-saved row. Re-renders (e.g. the server confirming the
+// write) rebuild the row, so offset the animation by the time already spent.
+const FLASH_MS = 1800;
+function applyFlash() {
+  if (!S.flash) return;
+  const elapsed = Date.now() - S.flash.at;
+  if (elapsed > FLASH_MS) { S.flash = null; return; }
+  const row = app.querySelector(`[data-row="${S.flash.id}"]`);
+  if (!row) return;
+  row.classList.add('flash');
+  row.style.animationDelay = `-${elapsed}ms`;
+  if (!S.flash.scrolled) {
+    S.flash.scrolled = true;
+    row.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
 }
 
 function errorBanner() {
@@ -253,12 +311,11 @@ function notFoundHTML() {
 
 function tripHTML() {
   const tabs = [
-    ['add', '＋', S.editingId ? 'Edit' : 'Add'],
     ['expenses', '≡', 'Expenses'],
     ['settle', '⇄', 'Settle up'],
     ['trip', '⚙', 'Trip'],
   ];
-  const view = { add: addHTML, expenses: expensesHTML, settle: settleHTML, trip: tripSettingsHTML }[S.tab]();
+  const view = { expenses: expensesHTML, settle: settleHTML, trip: tripSettingsHTML }[S.tab]();
   return `
     <header class="top">
       <button type="button" class="wordmark" data-act="home" aria-label="All trips">split</button>
@@ -267,6 +324,7 @@ function tripHTML() {
     </header>
     ${errorBanner()}
     <main>${view}</main>
+    ${S.tab !== 'trip' ? '<button type="button" class="fab" id="fab" data-act="open-add"><span class="plus" aria-hidden="true">+</span>Add expense</button>' : ''}
     <nav class="tabs"><div class="inner">
       ${tabs.map(([id, ic, label]) => `<button type="button" id="tab-${id}" data-act="tab" data-tab="${id}" ${S.tab === id ? 'aria-current="page"' : ''}><span class="ic" aria-hidden="true">${ic}</span>${label}</button>`).join('')}
     </div></nav>`;
@@ -276,36 +334,44 @@ function chip(id, label, pressed, act, extra = '') {
   return `<button type="button" class="chip" id="${id}" data-act="${act}" ${extra} aria-pressed="${pressed}">${esc(label)}</button>`;
 }
 
-function addHTML() {
-  const ppl = people();
-  if (!ppl.length) {
-    return `<div class="empty"><p>Add the people on this trip first.</p><button class="btn" data-act="tab" data-tab="trip">Add people</button></div>`;
-  }
-  const d = S.draft;
-  const e = S.errors;
-  const cur = CURRENCIES[d.currency];
-  const parts = draftParticipants();
-  const everyone = parts.length === ppl.length;
-
-  const whoAreYou = !S.me && !S.meAsked && !S.editingId ? `
+function whoAreYouHTML(ppl) {
+  if (S.me || S.meAsked || !ppl.length) return '';
+  return `
     <div class="card">
       <div class="field" style="margin:0"><span class="label">Who are you? <span class="opt">sets the default payer on this device</span></span>
         <div class="chips">${ppl.map((p) => chip(`me-${p.id}`, p.name, false, 'set-me', `data-id="${p.id}"`)).join('')}
           <button type="button" class="chip link" data-act="set-me" data-id="-">skip</button></div>
       </div>
-    </div>` : '';
+    </div>`;
+}
 
-  return `
-    ${whoAreYou}
-    <form id="expense-form" class="card" novalidate>
-      ${S.editingId ? `<h2 style="margin-top:0">${d.kind === 'payment' ? 'Edit payment' : 'Edit expense'}</h2>` : ''}
+function sheetHTML() {
+  const ppl = people();
+  const d = S.draft;
+  const title = !S.editingId ? 'Add expense' : d.kind === 'payment' ? 'Edit payment' : 'Edit expense';
+  const head = `
+    <div class="sheet-head" id="sheet-head">
+      <span class="grab" aria-hidden="true"></span>
+      <h2 id="sheet-title">${title}</h2>
+      <button type="button" class="icon-btn" id="sheet-close" data-act="close-sheet" aria-label="Close">✕</button>
+    </div>`;
+  if (!ppl.length) {
+    return `${head}<div class="sheet-scroll"><div class="empty"><p>Add the people on this trip first.</p><button type="button" class="btn" data-act="tab" data-tab="trip">Add people</button></div></div>`;
+  }
+  const e = S.errors;
+  const cur = CURRENCIES[d.currency];
+  const parts = draftParticipants();
+  const everyone = parts.length === ppl.length;
+
+  return `${head}
+    <form id="expense-form" class="sheet-scroll" novalidate>
 
       <div class="field ${e.amount ? 'invalid' : ''}">
         <span class="label"><label for="f-amount">Amount</label></span>
         <div class="amount-row">
           <div class="amount-wrap">
             <span class="sym" aria-hidden="true">${cur.symbol}</span>
-            <input id="f-amount" data-bind="amount" value="${esc(d.amount)}" inputmode="${cur.decimals ? 'decimal' : 'numeric'}" placeholder="0" autocomplete="off" ${S.editingId ? '' : 'autofocus'}>
+            <input id="f-amount" data-bind="amount" value="${esc(d.amount)}" inputmode="${cur.decimals ? 'decimal' : 'numeric'}" placeholder="0" autocomplete="off" enterkeyhint="next">
           </div>
           <div class="seg" role="group" aria-label="Currency">
             ${CUR_CODES.map((c) => `<button type="button" id="cur-${c}" data-act="currency" data-cur="${c}" aria-pressed="${d.currency === c}">${CURRENCIES[c].symbol}</button>`).join('')}
@@ -356,13 +422,11 @@ function addHTML() {
           <input id="f-note" data-bind="note" value="${esc(d.note)}" placeholder="e.g. dinner w/ sake" autocomplete="off" enterkeyhint="done"></label>
       </div>
 
-      ${S.editingId ? `
-        <div class="btn-row">
-          <button type="button" class="btn" data-act="cancel-edit">Cancel</button>
-          <button type="submit" class="btn primary">Save</button>
-        </div>
-        <div class="btn-row"><button type="button" class="btn danger" data-act="delete-expense">Delete ${d.kind === 'payment' ? 'payment' : 'expense'}</button></div>`
-    : '<button type="submit" class="btn primary block" style="margin-top:8px">Add expense</button>'}
+      <div class="sheet-foot">
+        ${S.editingId
+    ? '<button type="button" class="btn danger" data-act="delete-expense">Delete</button><button type="submit" class="btn primary grow">Save</button>'
+    : '<button type="submit" class="btn primary grow">Add expense</button>'}
+      </div>
     </form>`;
 }
 
@@ -410,8 +474,9 @@ function sortedExpenses() {
 
 function expensesHTML() {
   const list = sortedExpenses();
+  const who = whoAreYouHTML(people());
   if (!list.length) {
-    return `<div class="empty"><p>No expenses yet.</p><button class="btn" data-act="tab" data-tab="add">Add the first one</button></div>`;
+    return `${who}<div class="empty"><p>No expenses yet.</p><p class="small">Tap <b>Add expense</b> to log the first one.</p></div>`;
   }
   const sc = settleCur();
   const r = rates();
@@ -432,13 +497,13 @@ function expensesHTML() {
     const mine = S.me ? sh[S.me] : 0;
     if (e.kind === 'payment') {
       const to = Object.keys(sh)[0];
-      return `<li><button type="button" class="item payment" data-act="edit" data-id="${e.id}">
+      return `<li data-row="${e.id}"><button type="button" class="item payment" data-act="edit" data-id="${e.id}">
         <span class="main"><span class="title">${esc(personName(e.paidBy))} paid ${esc(personName(to))}</span>
         <span class="sub">settle-up payment${e.note ? ` · ${esc(e.note)}` : ''}</span></span>
         <span class="right amt">${format(e.amount, e.currency)}</span></button></li>`;
     }
     const splitDesc = e.split.mode === 'exact' ? 'custom split' : n === 1 ? `for ${esc(personName(Object.keys(sh)[0]))}` : `split ${n} ways`;
-    return `<li><button type="button" class="item" data-act="edit" data-id="${e.id}">
+    return `<li data-row="${e.id}"><button type="button" class="item" data-act="edit" data-id="${e.id}">
       <span class="main"><span class="title">${esc(e.merchant)}</span>
       <span class="sub">${esc(personName(e.paidBy))} paid · ${splitDesc}${e.note ? ` · ${esc(e.note)}` : ''}</span></span>
       <span class="right"><span class="amt">${format(e.amount, e.currency)}</span>
@@ -446,14 +511,14 @@ function expensesHTML() {
       </button></li>`;
   };
 
-  return `
+  return `${who}
     <div class="card">
       <div class="stat"><span>Trip total</span><span class="big">${format(total, sc)}</span></div>
       ${myShare !== null && S.trip.people[S.me] ? `<div class="stat small muted"><span>Your share</span><span class="amt">${format(myShare, sc)}</span></div>` : ''}
     </div>
     ${[...byDate].map(([date, items]) => `
       <h3>${esc(prettyDate(date))}</h3>
-      <div class="card" style="padding:0 14px"><ul class="list">${items.map(row).join('')}</ul></div>`).join('')}`;
+      <div class="card flush"><ul class="list">${items.map(row).join('')}</ul></div>`).join('')}`;
 }
 
 function settleHTML() {
@@ -486,18 +551,16 @@ function settleHTML() {
     <p class="small muted">Fewest possible payments. Converted at ${esc(rateNote)} (edit in Trip).</p>
 
     <h3>Balances</h3>
-    <div class="card">
-      <table class="bal">
-        <thead><tr><th>Person</th><th>Paid</th><th>Share</th><th>Net</th></tr></thead>
-        <tbody>${ppl.map((p) => `<tr>
-          <td>${esc(p.name)}${p.id === S.me ? ' <span class="muted">(you)</span>' : ''}</td>
-          <td class="amt">${format(paid[p.id], sc)}</td>
-          <td class="amt">${format(owed[p.id], sc)}</td>
-          <td class="amt ${net[p.id] > 0 ? 'pos' : net[p.id] < 0 ? 'neg' : ''}">${format(net[p.id], sc, { sign: true })}</td>
-        </tr>`).join('')}</tbody>
-      </table>
-      <p class="small muted" style="margin-bottom:0">Net = what you're owed (+) or owe (−), including payments already made.</p>
-    </div>`;
+    <div class="card flush">
+      <ul class="list">${ppl.map((p) => `
+        <li class="bal-row">
+          <span class="main"><span class="title">${esc(p.name)}${p.id === S.me ? ' <span class="muted">(you)</span>' : ''}</span>
+            <span class="sub"><span class="nowrap">paid <span class="amt">${format(paid[p.id], sc)}</span></span> · <span class="nowrap">share <span class="amt">${format(owed[p.id], sc)}</span></span></span></span>
+          <span class="amt net ${net[p.id] > 0 ? 'pos' : net[p.id] < 0 ? 'neg' : ''}">${format(net[p.id], sc, { sign: true })}</span>
+        </li>`).join('')}
+      </ul>
+    </div>
+    <p class="small muted">+ means they're owed money, − means they owe. Includes payments already marked paid.</p>`;
 }
 
 function tripSettingsHTML() {
@@ -558,19 +621,71 @@ function tripSettingsHTML() {
 
 // ---------- actions ----------
 
-function setTab(tab) {
-  S.tab = tab;
-  S.errors = {};
-  render();
-  window.scrollTo(0, 0);
+// The hash is the deep link for what's on screen: '' (expenses), 'settle',
+// 'trip', 'add', or 'edit-<expenseId>'. The trip itself is ?t=<tripId>.
+const currentHash = () => decodeURIComponent(location.hash.slice(1));
+const baseHash = () => (S.tab === 'expenses' ? '' : S.tab);
+const urlFor = (hash) => `${location.pathname}${location.search}${hash ? `#${hash}` : ''}`;
+
+function replaceRoute(hash) {
+  try { history.replaceState(null, '', urlFor(hash)); } catch { /* sandboxed frame */ }
+  applyRoute(hash);
 }
 
-function startEdit(id) {
-  const e = S.expenses.find((x) => x.id === id);
-  if (!e) return;
-  S.editingId = id;
-  S.draft = draftFromExpense(e);
-  setTab('add');
+function openSheet(hash) {
+  document.getElementById('toast').classList.remove('show');
+  S.sheetReturn = baseHash();
+  try {
+    history.pushState(null, '', urlFor(hash));
+    S.sheetPushed = true;
+  } catch {
+    S.sheetPushed = false;
+  }
+  applyRoute(hash);
+}
+
+function closeSheet() {
+  document.activeElement?.blur(); // drop the phone keyboard
+  if (S.sheetPushed) {
+    S.sheetPushed = false;
+    history.back(); // popstate -> applyRoute closes it
+  } else {
+    replaceRoute(baseHash());
+  }
+}
+
+function applyRoute(hash) {
+  if (!S.trip) { render(); return; }
+  const wasOpen = S.sheetOpen;
+  if (hash === 'add') {
+    if (S.editingId) resetDraft(); // an unsaved add draft survives close/reopen
+    S.sheetOpen = true;
+  } else if (hash.startsWith('edit-')) {
+    const id = hash.slice(5);
+    const e = S.expenses.find((x) => x.id === id);
+    if (!e) {
+      toast('That expense was deleted.');
+      replaceRoute(baseHash());
+      return;
+    }
+    if (S.editingId !== id) {
+      S.editingId = id;
+      S.draft = draftFromExpense(e);
+      S.errors = {};
+    }
+    S.sheetOpen = true;
+  } else {
+    S.sheetOpen = false;
+    S.sheetPushed = false;
+    if (S.editingId) resetDraft();
+    const tab = ['settle', 'trip'].includes(hash) ? hash : 'expenses';
+    if (tab !== S.tab) window.scrollTo(0, 0);
+    S.tab = tab;
+  }
+  render();
+  if (S.sheetOpen && !wasOpen && !S.editingId) {
+    document.getElementById('f-amount')?.focus({ preventScroll: true });
+  }
 }
 
 function resetDraft() {
@@ -595,24 +710,26 @@ function saveDraft() {
   resetDraft();
   S.draft.currency = expense.currency;
 
+  // Close onto the expense list so the new row and the toast are visible.
+  S.flash = { id: expense.id, at: Date.now() };
+  const backToList = S.sheetPushed && S.sheetReturn === '';
+  S.tab = 'expenses';
+  if (backToList) closeSheet();
+  else { document.activeElement?.blur(); S.sheetPushed = false; replaceRoute(''); }
+
   if (wasEditing) {
-    S.tab = 'expenses';
-    render();
-    toast('Saved', before && { label: 'Undo', fn: () => S.store.saveExpense(S.tripId, before) });
+    toast(`Saved ${expense.kind === 'payment' ? 'payment' : clip(expense.merchant)}`, before && { label: 'Undo', fn: () => S.store.saveExpense(S.tripId, before) });
   } else {
-    render();
-    document.getElementById('f-amount')?.focus();
-    toast(`Added ${format(expense.amount, expense.currency)} · ${expense.merchant}`, {
+    toast(`Added ${format(expense.amount, expense.currency)} · ${clip(expense.merchant)}`, {
       label: 'Undo', fn: () => S.store.deleteExpense(S.tripId, expense.id),
     });
   }
 }
 
 const actions = {
-  tab: ({ tab }) => {
-    if (tab === 'add' && S.tab === 'add' && S.editingId) resetDraft();
-    setTab(tab);
-  },
+  tab: ({ tab }) => replaceRoute(tab === 'expenses' ? '' : tab),
+  'open-add': () => openSheet('add'),
+  'close-sheet': () => closeSheet(),
   currency: ({ cur }) => { S.draft.currency = cur; render(); },
   'paid-by': ({ id }) => { S.draft.paidBy = id; delete S.errors.paidBy; render(); },
   mode: ({ mode }) => {
@@ -635,15 +752,13 @@ const actions = {
     if (S.draft && !S.editingId && (!S.draft.paidBy || id !== '-')) S.draft.paidBy = S.me;
     render();
   },
-  'cancel-edit': () => { resetDraft(); setTab('expenses'); },
   'delete-expense': () => {
     const e = S.expenses.find((x) => x.id === S.editingId);
     S.store.deleteExpense(S.tripId, S.editingId);
-    resetDraft();
-    setTab('expenses');
-    if (e) toast(`Deleted ${e.kind === 'payment' ? 'payment' : e.merchant}`, { label: 'Undo', fn: () => S.store.saveExpense(S.tripId, e) });
+    closeSheet();
+    if (e) toast(`Deleted ${e.kind === 'payment' ? 'payment' : clip(e.merchant)}`, { label: 'Undo', fn: () => S.store.saveExpense(S.tripId, e) });
   },
-  edit: ({ id }) => startEdit(id),
+  edit: ({ id }) => openSheet(`edit-${id}`),
   home: () => go(null),
   'open-trip': ({ id }) => go(id),
   'settle-cur': ({ cur }) => S.store.updateTrip(S.tripId, { settleCurrency: cur }),
@@ -721,14 +836,14 @@ const changes = {
   },
 };
 
-app.addEventListener('click', (ev) => {
+document.addEventListener('click', (ev) => {
   const el = ev.target.closest('[data-act]');
-  if (!el || !app.contains(el)) return;
+  if (!el) return;
   ev.preventDefault();
   actions[el.dataset.act]?.(el.dataset, el);
 });
 
-app.addEventListener('input', (ev) => {
+document.addEventListener('input', (ev) => {
   const el = ev.target;
   if (!S.draft) return;
   const clean = (v) => v.replace(CURRENCIES[S.draft.currency].decimals ? /[^\d.,]/g : /[^\d,]/g, '');
@@ -754,12 +869,13 @@ app.addEventListener('input', (ev) => {
   }
 });
 
-app.addEventListener('change', (ev) => {
+document.addEventListener('change', (ev) => {
   const el = ev.target.closest('[data-change]');
   if (el) changes[el.dataset.change]?.(el.dataset, el);
 });
 
-app.addEventListener('keydown', (ev) => {
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape' && S.sheetOpen) { closeSheet(); return; }
   // Enter on a change-bound input commits it instead of submitting anything.
   if (ev.key === 'Enter' && ev.target.dataset?.change) {
     ev.preventDefault();
@@ -767,7 +883,7 @@ app.addEventListener('keydown', (ev) => {
   }
 });
 
-app.addEventListener('submit', async (ev) => {
+document.addEventListener('submit', async (ev) => {
   ev.preventDefault();
   const form = ev.target;
   if (form.id === 'expense-form') saveDraft();
@@ -807,6 +923,45 @@ app.addEventListener('submit', async (ev) => {
   }
 });
 
+// Swipe the sheet's header down to close it.
+let drag = null;
+document.addEventListener('pointerdown', (ev) => {
+  const head = ev.target.closest('#sheet-head');
+  if (!head || ev.target.closest('button')) return;
+  const sheet = head.closest('.sheet');
+  drag = { y: ev.clientY, dy: 0, sheet };
+  head.setPointerCapture?.(ev.pointerId);
+  sheet.style.transition = 'none';
+});
+document.addEventListener('pointermove', (ev) => {
+  if (!drag) return;
+  drag.dy = Math.max(0, ev.clientY - drag.y);
+  drag.sheet.style.transform = `translateY(${drag.dy}px)`;
+});
+function endDrag() {
+  if (!drag) return;
+  const { sheet, dy } = drag;
+  drag = null;
+  sheet.style.transition = '';
+  sheet.style.transform = '';
+  if (dy > 80) closeSheet();
+}
+document.addEventListener('pointerup', endDrag);
+document.addEventListener('pointercancel', endDrag);
+
+// Keep the sheet above the on-screen keyboard (iOS doesn't resize the page).
+const vv = window.visualViewport;
+if (vv) {
+  const onViewport = () => {
+    const root = document.documentElement.style;
+    root.setProperty('--kb', `${Math.max(0, window.innerHeight - vv.height - vv.offsetTop)}px`);
+    root.setProperty('--vvh', `${vv.height}px`);
+  };
+  vv.addEventListener('resize', onViewport);
+  vv.addEventListener('scroll', onViewport);
+  onViewport();
+}
+
 // ---------- boot ----------
 
 function rememberTrip() {
@@ -826,7 +981,10 @@ function go(id) {
 
 function openTrip(id) {
   unsubscribe?.();
-  Object.assign(S, { tripId: id, trip: undefined, expenses: [], tab: 'add', draft: null, editingId: null, errors: {} });
+  Object.assign(S, {
+    tripId: id, trip: undefined, expenses: [], tab: 'expenses', sheetOpen: false, sheetPushed: false,
+    flash: null, draft: null, editingId: null, errors: {},
+  });
   if (!id) { render(); return; }
 
   const savedMe = ls.get(`split:me:${id}`);
@@ -844,6 +1002,13 @@ function openTrip(id) {
         document.title = `${trip.name} • split`;
         rememberTrip();
         first = false;
+        applyRoute(currentHash()); // honor deep links like #add or #edit-<id>
+        return;
+      }
+      if (S.sheetOpen && S.editingId && !expenses.some((e) => e.id === S.editingId)) {
+        toast('Someone else deleted this expense.');
+        closeSheet();
+        return;
       }
     }
     render();
@@ -855,7 +1020,11 @@ async function boot() {
     S.error = `Sync problem: ${err.message || err}. Changes are kept on this device and will retry.`;
     render();
   });
-  window.addEventListener('popstate', () => openTrip(new URLSearchParams(location.search).get('t')));
+  window.addEventListener('popstate', () => {
+    const t = new URLSearchParams(location.search).get('t');
+    if (t !== S.tripId) openTrip(t);
+    else applyRoute(currentHash());
+  });
   openTrip(S.tripId);
 }
 

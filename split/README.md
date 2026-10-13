@@ -34,6 +34,11 @@ A trip's id is in its link (`/split/?t=…`). Anyone with the link can view and 
 
 Firestore caches locally, so the app works offline (e.g. on the subway) and syncs when it's back online.
 
+## Links
+
+- `?t=<tripId>` opens a trip (this is the share link).
+- Add a hash to open a screen directly: `#add` (new-expense sheet), `#edit-<expenseId>`, `#settle`, `#trip`. No hash = expense list.
+
 ## Notes
 
 - Amounts are stored as integers in each currency's smallest unit (cents, yen).
