@@ -1,0 +1,16 @@
+rules_version = '2';
+
+// Link-based sharing: anyone who knows a trip's id (it's in the share link)
+// can read and edit it, but nobody can list trips to discover others' ids.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /trips/{tripId} {
+      allow get, create, update: if true;
+      allow list, delete: if false;
+
+      match /expenses/{expenseId} {
+        allow read, write: if true;
+      }
+    }
+  }
+}
